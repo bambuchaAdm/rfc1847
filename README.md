@@ -1,3 +1,3 @@
-# RFC1847 - security extensions for MIME
+# RFC1847 - Security Multiparts for MIME
 
 Simple implementation. Interface inspierd by crypto/openpgp
