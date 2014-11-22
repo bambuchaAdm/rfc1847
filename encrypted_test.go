@@ -3,6 +3,7 @@ package rfc1847
 import (
 	"testing"
 	"io"
+	"bytes"
 )
 
 func TestEncryptedMessage(t * testing.T){
@@ -12,24 +13,34 @@ func TestEncryptedMessage(t * testing.T){
 	if message == nil {
 		t.Fail()
 	}
+
+	buff := new(bytes.Buffer)
 	
 	go func(){
-		var err error = nil
-		buf := make([]byte, 1024)
-		for err == nil {
-
-			
-			buf = make([]byte, 1024)
-			_, err = output.Read(buf)
-			t.Log(string(buf), err)
-			if err == io.EOF {
-				t.Error("First EOF")
-			}
+		if _, err := message.Control.Write([]byte("Version 1")); err != nil {
+			t.Fail()
 		}
+		if err := message.Control.Close(); err != nil {
+			t.Fail()
+		}
+		
+		if _, err := message.Encrypted.Write([]byte("Some encrypted Message")); err != nil {
+			t.Fail()
+		}
+		if err := message.Encrypted.Close(); err != nil {
+			t.Fail()
+		}
+		
+	}()
+
+	sync := make(chan bool)
+
+	go func(){
+		buff.ReadFrom(output)
+		t.Logf("\n%s", buff.String())
+		sync <- true
 	}()
 	
-	message.Control.Write([]byte("Version 1"))
-	message.Control.Close()
-	message.Encrypted.Write([]byte("Some encrypted Message"))
-	message.Encrypted.Close()
+	<- sync
+	
 }
