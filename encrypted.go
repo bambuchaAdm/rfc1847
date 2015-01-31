@@ -1,6 +1,7 @@
 package rfc1847
 
 import (
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/textproto"
@@ -15,48 +16,53 @@ type EncryptedMessage struct {
 	protocol string
 	Control io.WriteCloser
 	Encrypted io.WriteCloser
+	Header textproto.MIMEHeader
 }
 
 func protocolHeader(protocol string) textproto.MIMEHeader  {
-	contentType := make([]string,1)
-	contentType[0] = protocol
-	return map[string][]string{ "ContentType": contentType }
+	return map[string][]string{ "Content-Type": []string{ protocol }}
 }
 
 func bodyHeader() textproto.MIMEHeader  {
-	contentType := make([]string,1)
-	contentType[0] = "application/octet-stream"
-	return map[string][]string{ "ContentType": contentType }
+	return map[string][]string{ "Content-Type": []string{ "application/octet-stream" }}
 }
 
-func NewEncryptedMessage(w io.WriteCloser, protocol string) * EncryptedMessage {
+func NewEncryptedMessage(w io.Writer, protocol string) * EncryptedMessage {
 	controlOutput, controlInput := io.Pipe()
 	encryptedOutput, encryptedInput := io.Pipe()
 
 	multipartWriter := multipart.NewWriter(w)
 
-	message := &EncryptedMessage{w: multipartWriter,
+	header := map[string][]string{"Content-Type" : []string{
+		"multipart/encrypted",
+		fmt.Sprintf("boundary=\"%s\"", multipartWriter.Boundary()),
+		fmt.Sprintf("protocol=\"%s\"", protocol)}	}
+
+	message := &EncryptedMessage{
+		w: multipartWriter,
 		protocol: protocol,
 		Control: controlInput,
-		Encrypted: encryptedInput	}
+		Encrypted: encryptedInput,
+	  Header : header }
 
-	go func(control, encrypted io.Reader, m * EncryptedMessage){
-		controlPart, err := m.w.CreatePart(protocolHeader(m.protocol))
-		if err != nil {
+	go func(control, encrypted io.Reader, m * EncryptedMessage){		
+		if controlPart, err := m.w.CreatePart(protocolHeader(m.protocol)); err == nil {
+			if _, err := io.Copy(controlPart, control); err != nil {
+				panic(err)
+			}
+		} else {
 			panic(err)
 		}
-		if _, err := io.Copy(controlPart, control); err != nil {
+		if encryptPart, err := m.w.CreatePart(bodyHeader()); err == nil {
+			if _, err := io.Copy(encryptPart, encrypted); err != nil {
+				panic(err)
+			}
+		} else {
 			panic(err)
 		}
-		encryptPart, err := m.w.CreatePart(bodyHeader())
-		if err != nil {
+		if err := m.w.Close(); err != nil {
 			panic(err)
 		}
-		if _, err := io.Copy(encryptPart, encrypted); err != nil {
-			panic(err)
-		}
-		if err := m.w.Close(); err != nil { panic(err) }
-		w.Close()
 	}(controlOutput, encryptedOutput, message)
 
 	return message
